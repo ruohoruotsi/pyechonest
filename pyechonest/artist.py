@@ -11,7 +11,7 @@ Refer to the official api documentation if you are unsure about something.
 from . import util
 from .proxies import ArtistProxy, ResultList
 from .song import Song
-
+import spotipy
 
 class Artist(ArtistProxy):
     """
@@ -303,7 +303,45 @@ class Artist(ArtistProxy):
         return self.cache['hotttnesss']
     
     hotttnesss = property(get_hotttnesss)
-    
+
+    def prune_lastfm_images(self, results):
+        '''  last.fm is dying. Most of the images available via the echonest are from
+        http://userserve-ak.last.fm/serve/. So we prune these out. However, we may just
+        have to delegate to another service like Spotify or Discogs.
+
+        :param results:
+        :return:
+        '''
+        print("BEFORE")
+        print(results)
+        print("\n")
+
+        for i in results[:]:
+            imageURL = (i['url'])
+            if("last.fm" in imageURL):
+                results.remove(i)
+            else: print(imageURL)
+
+        print("\nAFTER")
+        print(results)
+        print("\n\n")
+        return results
+
+    def get_spotify_images(self):
+        """
+        1) installed spotipy-2.3.7: sudo pip3.5 install spotipy
+        2) return the best spotify image
+        """
+        sp = spotipy.Spotify()
+        results = sp.search(q='artist:' + self.name, type='artist')
+        items = results['artists']['items']
+
+        if len(items) > 0:
+            artist = items[0] # grab the first/best result, i.e. Justin Bieber vs Justn Bieber Tribute Band
+            # print(artist['name'], artist['images'][0]['url'])
+            retrievedImages = ResultList(items[0]['images'], 0, 0)  # package up list like get_images
+            return retrievedImages
+
     def get_images(self, results=15, start=0, license=None, cache=True):
         """Get a list of artist images
         
@@ -329,16 +367,26 @@ class Artist(ArtistProxy):
         u'http://c4.ac-images.myspacecdn.com/images01/5/l_e1a329cdfdb16a848288edc6d578730f.jpg'
         >>> 
         """
-        
+
+        image_results = None
         if cache and ('images' in self.cache) and results==15 and start==0 and license==None:
-            return self.cache['images']
+            image_results = self.cache['images']
         else:
             response = self.get_attribute('images', results=results, start=start, license=license)
             total = response.get('total') or 0
             if results==15 and start==0 and license==None:
-                self.cache['images'] = ResultList(response['images'], 0, total)
-            return ResultList(response['images'], start, total)
-    
+                self.cache['images'] = self.prune_lastfm_images(ResultList(response['images'], 0, total))
+            image_results = self.prune_lastfm_images(ResultList(response['images'], start, total))
+
+        print("    [pyechonest] found " + str(len(image_results)) + " pruned images")
+        if len(image_results) == 0:
+            image_results = self.get_spotify_images()
+            if image_results is not None:
+                print("        [spotipy] found " + str(len(image_results)) + " images")
+
+        return image_results
+
+
     images = property(get_images)    
 
     def get_news(self, results=15, start=0, cache=True, high_relevance=False):
